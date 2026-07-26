@@ -31,7 +31,7 @@ training_data/
 models/
 
 # Cache - but track translation cache (valuable)
-cache/
+cache/*
 !cache/translation_cache.json
 !cache/.gitkeep
 
