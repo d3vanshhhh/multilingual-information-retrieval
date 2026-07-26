@@ -1,0 +1,25 @@
+models:
+  # Monolingual models (English only)
+  all-MiniLM-L6-v2: sentence-transformers/all-MiniLM-L6-v2  # Monolingual (English only)
+  all-mpnet-base-v2: sentence-transformers/all-mpnet-base-v2  # Monolingual (English only)
+  stella-base-en-v2: infgrad/stella-base-en-v2  # Monolingual (English only)
+  
+  # Multilingual models
+  paraphrase-multilingual-MiniLM-L12-v2: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2  # Multilingual (50+ languages)
+  multilingual-e5-base: intfloat/multilingual-e5-base  # Multilingual (100+ languages) 
+  bge-m3: BAAI/bge-m3  # Multilingual (100+ languages)
+
+translation_models:
+  nllb: facebook/nllb-200-distilled-600M
+  m2m100: facebook/m2m100_418M
+
+query_dataset: ellamind/wikipedia-2023-11-retrieval-multilingual-queries
+corpus_dataset: ellamind/wikipedia-2023-11-retrieval-multilingual-corpus
+qrels_dataset: ellamind/wikipedia-2023-11-retrieval-multilingual-qrels
+
+languages: [en, de, hi]  # Using 3 languages for quick demo: English, German, Hindi
+
+evaluation:
+  k_values: [1, 5, 10]
+  max_queries_per_lang: 100  # Increased from 5 to 100 for better statistical significance
+  max_docs_per_lang: 500
