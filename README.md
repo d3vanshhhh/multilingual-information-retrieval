@@ -1,6 +1,6 @@
-# Multilingual Information Retrieval - Semester VIII
+# Multilingual Information Retrieval
 
-A comprehensive multilingual information retrieval system. Framework supports 9 embedding models across 16 languages; current demo configuration uses 6 models and 3 languages (en, de, hi) with dual translation pipelines.
+An investigation into multilingual information retrieval performance across embedding models, languages, and translation pipelines. Framework supports 9 embedding models across 16 languages; current evaluation uses 6 models and 3 languages (en, de, hi) with dual translation approaches.
 
 ## 🚀 Quick Start
 
@@ -18,11 +18,11 @@ python generate_embeddings.py --test --model all-MiniLM-L6-v2
 # Run evaluation
 python evaluate.py --test --models multilingual-e5-base all-MiniLM-L6-v2
 
-# Launch demo
+# Launch interactive interface
 python -m streamlit run streamlit_demo_simple.py
 ```
 
-**Demo URL:** http://localhost:8503
+**Interface URL:** http://localhost:8503
 
 ## 📊 Key Results
 
@@ -43,19 +43,10 @@ For complete documentation, see **[DOCUMENTATION.md](DOCUMENTATION.md)**
 
 Includes:
 - Full project overview
-- Demo guide for presentations
-- Technical details and architecture
+- Technical architecture and design decisions
 - Results analysis
+- Usage guide
 - Troubleshooting guide
-- Q&A for expected questions
-
-## 🎯 For Mid-Sem Demo
-
-See **[DEMO_GUIDE.md](DEMO_GUIDE.md)** for:
-- 20-minute presentation flow
-- Demo queries (copy-paste ready)
-- Key talking points
-- Expected questions & answers
 
 ## 📁 Project Structure
 
@@ -66,23 +57,22 @@ multilingual-ir-sem8/
 ├── utils.py                     # Translation utilities
 ├── generate_embeddings.py       # Generate FAISS indices
 ├── evaluate.py                  # Evaluation framework
-├── streamlit_demo_simple.py     # Interactive demo
+├── streamlit_demo_simple.py     # Interactive search interface
 ├── compare_results.py           # Results analysis
 ├── test_setup.py                # Setup validation
 ├── requirements.txt             # Dependencies
 ├── README.md                    # This file
 ├── DOCUMENTATION.md            # Complete documentation
-├── DEMO_GUIDE.md                # Demo guide
 ```
 
 ## 🎓 Key Features
 
-- ✅ Framework supports 9 embedding models (currently configured: 6 models)
-- ✅ Framework supports 16 languages (demo configured for 3: en, de, hi)
+- ✅ Framework supports 9 embedding models (currently evaluated: 6 models)
+- ✅ Framework supports 16 languages (currently configured: 3 — en, de, hi)
 - ✅ 2 retrieval pipelines (Direct vs Translate→English with NLLB/M2M100)
 - ✅ Translation caching with SHA256 hashing
 - ✅ Comprehensive metrics (nDCG, MRR, Precision, Success)
-- ✅ Interactive Streamlit demo
+- ✅ Interactive search interface
 - ✅ Per-language and summary results
 - ✅ Visualizations (HTML charts)
 
@@ -132,16 +122,16 @@ For more troubleshooting, see [DOCUMENTATION.md](DOCUMENTATION.md#troubleshootin
 - **Documents**: 500 per language (test mode)
 - **Performance**: bge-m3 and multilingual-e5-base top performers (~0.83 nDCG@10)
 
-## 🎉 Semester VII → VIII Improvements
+## 🔬 Research Evolution
 
-| Feature | Sem VII | Sem VIII |
-|---------|---------|----------|
-| Models | 5 | 9 |
-| Evaluation | Partial | Complete |
-| Translation | NLLB only | NLLB + M2M100 |
-| Cache | None | Persistent |
-| Demo | None | Interactive |
-| Results | Basic | Comprehensive |
+This investigation extends an earlier multilingual IR study with:
+
+- **Extended model coverage**: 5 → 9 embedding models
+- **Complete evaluation**: Partial results → full metrics across all models
+- **Dual translation support**: NLLB-200 + M2M100
+- **Persistent translation cache**: SHA256-based with disk storage
+- **Interactive exploration interface**: Real-time search across languages
+- **Comprehensive analysis**: Per-language breakdowns, visualizations
 
 ## 📞 Support
 
@@ -152,5 +142,4 @@ For issues or questions:
 
 ---
 
-**B.Tech Semester VIII Project Extension**  
-**Last Updated:** July 26, 2026 (Cleanup Pass)
+**Last Updated:** July 27, 2026

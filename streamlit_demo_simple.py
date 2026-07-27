@@ -47,7 +47,7 @@ def load_language_data(language):
             split='test'
         )
         
-        # Get first 500 docs for demo
+        # Get first 500 docs (test mode)
         if len(corpus_dataset) > 500:
             corpus_dataset = corpus_dataset.select(range(500))
         
@@ -98,7 +98,7 @@ def search_documents(query_text, model, docs, language, top_k=10):
 
 
 def main():
-    st.set_page_config(page_title="Multilingual IR Demo", layout="wide", page_icon="🌍")
+    st.set_page_config(page_title="Multilingual IR System", layout="wide", page_icon="🌍")
     
     # Custom CSS
     st.markdown("""
@@ -117,7 +117,7 @@ def main():
         """, unsafe_allow_html=True)
     
     st.title("🌍 Multilingual Information Retrieval System")
-    st.markdown("**Semester VIII B.Tech Project Extension**")
+    st.markdown("**Research investigation into cross-lingual retrieval performance**")
     st.markdown("---")
     
     config = load_config()
@@ -308,7 +308,7 @@ def main():
     st.markdown("---")
     st.markdown("""
     <div style='text-align: center; color: gray;'>
-    <p>Multilingual Information Retrieval System | Semester VIII B.Tech Project</p>
+    <p>Multilingual Information Retrieval System</p>
     <p>Supports 9 models across 16 languages with dual translation pipelines</p>
     </div>
     """, unsafe_allow_html=True)

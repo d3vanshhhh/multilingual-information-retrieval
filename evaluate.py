@@ -12,8 +12,8 @@ from translation_cache import TranslationCache
 from utils import translate_to_english
 
 
-class Sem8Evaluator:
-    """Main evaluation class for Semester VIII multilingual IR project."""
+class MultilingualIREvaluator:
+    """Main evaluation class for multilingual IR research."""
     
     def __init__(self, config_path, embeddings_dir, output_dir, cache_dir):
         self.config = self._load_config(config_path)
@@ -362,7 +362,7 @@ def main():
     args = parser.parse_args()
     
     # Initialize evaluator
-    evaluator = Sem8Evaluator(
+    evaluator = MultilingualIREvaluator(
         args.config,
         args.embeddings_dir,
         args.output_dir,

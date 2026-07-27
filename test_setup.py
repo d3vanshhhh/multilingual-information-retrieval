@@ -123,7 +123,7 @@ def test_translation_cache():
 def main():
     """Run all tests."""
     print("="*60)
-    print("Multilingual IR - Semester VIII Setup Validation")
+    print("Multilingual IR - Setup Validation")
     print("="*60)
     
     results = []
