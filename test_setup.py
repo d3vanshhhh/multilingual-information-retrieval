@@ -148,7 +148,7 @@ def main():
         print("\nNext steps:")
         print("  1. python generate_embeddings.py --test")
         print("  2. python evaluate.py --test")
-        print("  3. streamlit run streamlit_app.py")
+        print("  3. python -m streamlit run streamlit_demo_simple.py")
     else:
         print("\n⚠️  Some tests failed. Please fix the issues above.")
         sys.exit(1)
