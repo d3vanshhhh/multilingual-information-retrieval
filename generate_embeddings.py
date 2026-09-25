@@ -2,12 +2,15 @@ import argparse
 import yaml
 import numpy as np
 import faiss
+import logging
+import torch
 from sentence_transformers import SentenceTransformer
 from datasets import load_dataset
 from tqdm import tqdm
 from pathlib import Path
 import time
 import os
+from datetime import datetime
 
 
 def load_config(config_path="config.yaml"):
@@ -16,29 +19,76 @@ def load_config(config_path="config.yaml"):
         return yaml.safe_load(f)
 
 
+def setup_logging(model_name):
+    """Set up logging to both console and file"""
+    logs_dir = Path('logs')
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    log_file = logs_dir / f"generate_embeddings_{model_name}_{timestamp}.log"
+    
+    # Create logger
+    logger = logging.getLogger(f'embeddings_{model_name}')
+    logger.setLevel(logging.INFO)
+    
+    # Remove existing handlers
+    logger.handlers.clear()
+    
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_formatter = logging.Formatter('%(message)s')
+    console_handler.setFormatter(console_formatter)
+    logger.addHandler(console_handler)
+    
+    # File handler
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setLevel(logging.INFO)
+    file_formatter = logging.Formatter('%(asctime)s - %(message)s')
+    file_handler.setFormatter(file_formatter)
+    logger.addHandler(file_handler)
+    
+    return logger, log_file
+
+
 def generate_embeddings_for_model(model_name, model_id, config, embeddings_dir, force=False, test_mode=False):
     """Generate embeddings for a specific model and all languages."""
-    print(f"\n{'='*60}")
-    print(f"Processing model: {model_name}")
-    print(f"{'='*60}")
+    # Set up logging
+    logger, log_file = setup_logging(model_name)
+    start_time = datetime.now()
+    
+    logger.info(f"{'='*80}")
+    logger.info(f"EMBEDDING GENERATION (NATIVE CORPUS)")
+    logger.info(f"{'='*80}")
+    logger.info(f"Model: {model_name}")
+    logger.info(f"Model ID: {model_id}")
+    logger.info(f"Start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Test mode: {test_mode}")
+    logger.info(f"Force regeneration: {force}")
+    logger.info(f"Log file: {log_file}")
+    logger.info(f"{'='*80}")
     
     embeddings_dir = Path(embeddings_dir)
     embeddings_dir.mkdir(parents=True, exist_ok=True)
     
     # Load model
     try:
-        print(f"[{model_name}] Loading model from {model_id}...")
+        logger.info(f"Loading model from {model_id}...")
         
         # Special handling for models that need trust_remote_code=True
         if 'gte-multilingual-base' in model_id:
             model = SentenceTransformer(model_id, trust_remote_code=True)
         else:
             model = SentenceTransformer(model_id)
-            
-        print(f"[{model_name}] Model loaded successfully")
+        
+        # Explicit device selection
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        model = model.to(device)
+        logger.info(f"Model loaded successfully")
+        logger.info(f"Model device: {device}")
     except Exception as e:
-        print(f"[{model_name}] ERROR: Failed to load model: {e}")
-        print(f"[{model_name}] If this is a PyTorch version issue, try: pip install torch>=2.6.0")
+        logger.error(f"ERROR: Failed to load model: {e}")
+        logger.error(f"If this is a PyTorch version issue, try: pip install torch>=2.6.0")
         return 0
     
     languages = config['languages']
@@ -50,12 +100,12 @@ def generate_embeddings_for_model(model_name, model_id, config, embeddings_dir, 
         
         # Skip if already exists and not forcing
         if index_path.exists() and not force:
-            print(f"  [{lang}] Index already exists, skipping (use --force to regenerate)")
+            logger.info(f"[{lang}] Index already exists, skipping (use --force to regenerate)")
             continue
         
         try:
             # Load corpus for this language
-            print(f"  [{lang}] Loading corpus...")
+            logger.info(f"[{lang}] Loading corpus...")
             corpus_dataset = load_dataset(
                 config['corpus_dataset'],
                 lang,
@@ -68,7 +118,13 @@ def generate_embeddings_for_model(model_name, model_id, config, embeddings_dir, 
             
             # Extract texts
             texts = [doc['text'] for doc in corpus_dataset]
-            print(f"  [{lang}] Encoding {len(texts)} documents...")
+            
+            # Apply multilingual-e5-base prefix if needed
+            if model_name == 'multilingual-e5-base':
+                texts = [f"passage: {t}" for t in texts]
+                logger.info(f"[{lang}] Applying 'passage: ' prefix for multilingual-e5-base")
+            
+            logger.info(f"[{lang}] Encoding {len(texts)} documents...")
             
             # Generate embeddings with progress bar
             embeddings = model.encode(
@@ -89,12 +145,22 @@ def generate_embeddings_for_model(model_name, model_id, config, embeddings_dir, 
             
             # Save index
             faiss.write_index(index, str(index_path))
-            print(f"  [{lang}] Saved index with {index.ntotal} vectors to {index_path}")
+            logger.info(f"[{lang}] Saved index with {index.ntotal} vectors to {index_path}")
             indices_generated += 1
             
         except Exception as e:
-            print(f"  [{lang}] ERROR: {e}")
+            logger.error(f"[{lang}] ERROR: {e}")
             continue
+    
+    end_time = datetime.now()
+    elapsed = end_time - start_time
+    
+    logger.info(f"\n{'='*80}")
+    logger.info(f"COMPLETED")
+    logger.info(f"End time: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Elapsed time: {elapsed}")
+    logger.info(f"Indices generated: {indices_generated}")
+    logger.info(f"{'='*80}")
     
     return indices_generated
 

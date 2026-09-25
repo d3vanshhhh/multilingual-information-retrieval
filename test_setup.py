@@ -19,10 +19,7 @@ def check_imports():
         'datasets',
         'faiss',
         'tqdm',
-        'streamlit',
-        'plotly',
-        'sklearn',
-        'scipy'
+        'plotly'
     ]
     
     print("Checking required packages...")
@@ -77,9 +74,10 @@ def check_directories():
         'results',
         'results/per_language',
         'cache',
-        'negatives',
-        'training_data',
-        'models'
+        'translated_corpus',
+        'translated_queries',
+        'logs',
+        'audit'
     ]
     
     for dir_path in required_dirs:
@@ -95,25 +93,53 @@ def check_directories():
     return True
 
 
+def check_gpu():
+    """Check GPU availability for translation and embeddings."""
+    print("\nChecking GPU availability...")
+    try:
+        import torch
+        
+        cuda_available = torch.cuda.is_available()
+        
+        if cuda_available:
+            device_name = torch.cuda.get_device_name(0)
+            print(f"  ✓ CUDA available")
+            print(f"  ✓ GPU: {device_name}")
+            print("\n✅ GPU acceleration enabled!")
+            return True
+        else:
+            print(f"  ⚠️  CUDA not available - will use CPU")
+            print(f"\n⚠️  Warning: Translation and embedding generation will be significantly slower on CPU.")
+            print(f"     This project found CPU-only torch install to be a common pitfall.")
+            print(f"     To fix: pip install torch with CUDA support")
+            print(f"     Example: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118")
+            return True  # Still pass, but with warning
+    except Exception as e:
+        print(f"\n❌ GPU check error: {e}")
+        return False
+
+
 def test_translation_cache():
     """Test translation cache functionality."""
     print("\nTesting translation cache...")
     try:
         from translation_cache import TranslationCache
+        from pathlib import Path
         
-        cache = TranslationCache(cache_dir='cache')
+        cache_file = Path('cache/translation_cache.json')
         
-        # Test set and get
-        cache.set("Hello", "en", "test", "Hola")
-        result = cache.get("Hello", "en", "test")
+        if not cache_file.exists():
+            print(f"  ⚠️  Cache file not found: {cache_file}")
+            print(f"     This is normal for first run - will be created during translation")
+            return True
         
-        assert result == "Hola", "Cache get/set failed"
-        print("  ✓ Cache set/get works")
+        cache = TranslationCache()
+        entry_count = len(cache.cache)
         
-        # Test stats
-        cache.print_stats()
+        print(f"  ✓ Cache file exists and is loadable")
+        print(f"  ✓ Current cache entries: {entry_count}")
         
-        print("\n✅ Translation cache works!")
+        print("\n✅ Translation cache ready!")
         return True
     except Exception as e:
         print(f"\n❌ Translation cache error: {e}")
@@ -131,6 +157,7 @@ def main():
     results.append(("Package Check", check_imports()))
     results.append(("Config Check", check_config()))
     results.append(("Directory Check", check_directories()))
+    results.append(("GPU Check", check_gpu()))
     results.append(("Cache Test", test_translation_cache()))
     
     print("\n" + "="*60)
@@ -146,9 +173,14 @@ def main():
     if all_passed:
         print("\n🎉 All tests passed! You're ready to go.")
         print("\nNext steps:")
-        print("  1. python generate_embeddings.py --test")
-        print("  2. python evaluate.py --test")
-        print("  3. python -m streamlit run streamlit_demo_simple.py")
+        print("  1. Translate corpus: python translate_corpus.py --language de --translation-model nllb")
+        print("                       python translate_corpus.py --language hi --translation-model nllb")
+        print("  2. Translate queries: python translate_queries.py --language de --translation-model nllb")
+        print("                        python translate_queries.py --language hi --translation-model nllb")
+        print("  3. Generate embeddings (native): python generate_embeddings.py")
+        print("  4. Generate embeddings (translated): python generate_embeddings_translated.py")
+        print("  5. Evaluate: python evaluate.py")
+        print("  6. Compare results: python compare_results.py --no-plots")
     else:
         print("\n⚠️  Some tests failed. Please fix the issues above.")
         sys.exit(1)

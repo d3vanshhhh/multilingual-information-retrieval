@@ -1,6 +1,5 @@
 """
-Generate embeddings for translated corpus.
-This creates embeddings for the English-translated versions of German and Hindi documents.
+Generate embeddings for NLLB-translated corpus with resumability and logging.
 """
 
 import argparse
@@ -8,80 +7,149 @@ import yaml
 import json
 import numpy as np
 import faiss
+import logging
+import torch
 from sentence_transformers import SentenceTransformer
-from tqdm import tqdm
 from pathlib import Path
+from datetime import datetime
+
+
+def setup_logging(model_name, language):
+    """Set up logging to both console and file"""
+    logs_dir = Path('logs')
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    log_file = logs_dir / f"generate_embeddings_translated_{model_name}_{language}_{timestamp}.log"
+    
+    # Create logger
+    logger = logging.getLogger(f'embeddings_translated_{model_name}_{language}')
+    logger.setLevel(logging.INFO)
+    
+    # Remove existing handlers
+    logger.handlers.clear()
+    
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_formatter = logging.Formatter('%(message)s')
+    console_handler.setFormatter(console_formatter)
+    logger.addHandler(console_handler)
+    
+    # File handler
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setLevel(logging.INFO)
+    file_formatter = logging.Formatter('%(asctime)s - %(message)s')
+    file_handler.setFormatter(file_formatter)
+    logger.addHandler(file_handler)
+    
+    return logger, log_file
 
 
 def load_config(config_path="config.yaml"):
-    """Load configuration from YAML file."""
+    """Load configuration from YAML file"""
     with open(config_path, 'r') as f:
         return yaml.safe_load(f)
 
 
 def load_translated_corpus(corpus_file):
-    """Load translated corpus from JSON file."""
+    """Load translated corpus from JSON file"""
     with open(corpus_file, 'r', encoding='utf-8') as f:
         return json.load(f)
 
 
-def generate_embeddings_for_translated_corpus(model_name, model_id, translated_corpus, embeddings_dir, original_language):
-    """Generate embeddings for translated corpus."""
+def generate_embeddings_for_translated_corpus(model_name, model_id, language, embeddings_dir, translation_model='nllb'):
+    """
+    Generate embeddings for translated corpus with resumability.
     
-    print(f"\n{'='*60}")
-    print(f"Processing: {model_name}")
-    print(f"Original language: {original_language} → English (translated)")
-    print(f"Documents: {len(translated_corpus)}")
-    print(f"{'='*60}")
+    Args:
+        model_name: Name of the embedding model
+        model_id: HuggingFace model ID
+        language: Original language code (de, hi)
+        embeddings_dir: Directory to save embeddings
+        translation_model: Translation model used (default: nllb)
+    """
+    # Set up logging
+    logger, log_file = setup_logging(model_name, language)
     
-    embeddings_dir = Path(embeddings_dir)
-    embeddings_dir.mkdir(parents=True, exist_ok=True)
+    start_time = datetime.now()
     
-    # Output file name: model_originalLang_translated_en.index
-    index_path = embeddings_dir / f"{model_name}_{original_language}_translated_en.index"
-    
-    if index_path.exists():
-        print(f"  Index already exists: {index_path}")
-        return True
+    logger.info(f"{'='*80}")
+    logger.info(f"EMBEDDING GENERATION (TRANSLATED CORPUS)")
+    logger.info(f"{'='*80}")
+    logger.info(f"Model: {model_name}")
+    logger.info(f"Language: {language} → English (translated via {translation_model})")
+    logger.info(f"Start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Log file: {log_file}")
+    logger.info(f"{'='*80}")
     
     try:
-        # Load model
-        print(f"  Loading model: {model_id}")
+        # Load translated corpus
+        corpus_file = Path('translated_corpus') / f"corpus_{language}_translated_en_{translation_model}.json"
         
-        # Special handling for models that need trust_remote_code=True
-        if 'gte-multilingual-base' in model_id:
-            model = SentenceTransformer(model_id, trust_remote_code=True)
-        else:
-            model = SentenceTransformer(model_id)
+        if not corpus_file.exists():
+            logger.error(f"Translated corpus not found: {corpus_file}")
+            return False
+        
+        logger.info(f"Loading translated corpus: {corpus_file.name}")
+        translated_corpus = load_translated_corpus(corpus_file)
+        doc_count = len(translated_corpus)
+        logger.info(f"Loaded {doc_count} translated documents")
+        
+        # Output index path
+        embeddings_dir = Path(embeddings_dir)
+        embeddings_dir.mkdir(parents=True, exist_ok=True)
+        index_path = embeddings_dir / f"{model_name}_{language}_translated_en_{translation_model}.index"
+        
+        # Check if index already exists and is complete
+        if index_path.exists():
+            try:
+                existing_index = faiss.read_index(str(index_path))
+                if existing_index.ntotal == doc_count:
+                    logger.info(f"Index already exists with correct count: {index_path}")
+                    logger.info(f"  ntotal={existing_index.ntotal}, expected={doc_count}")
+                    logger.info(f"Skipping - already complete")
+                    end_time = datetime.now()
+                    logger.info(f"End time: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                    logger.info(f"Duration: {end_time - start_time}")
+                    return True
+                else:
+                    logger.warning(f"Existing index has wrong count: ntotal={existing_index.ntotal}, expected={doc_count}")
+                    logger.info(f"Regenerating index...")
+            except Exception as e:
+                logger.warning(f"Could not read existing index: {e}")
+                logger.info(f"Regenerating index...")
+        
+        # Load embedding model
+        logger.info(f"Loading embedding model: {model_id}")
+        model = SentenceTransformer(model_id)
+        
+        # Explicit device selection
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        model = model.to(device)
+        logger.info(f"Model device: {device}")
         
         # Extract texts
         texts = [doc['text'] for doc in translated_corpus]
-        print(f"  Encoding {len(texts)} translated documents...")
         
-        # Generate embeddings with special handling for gte-multilingual-base
-        if 'gte-multilingual-base' in model_id:
-            # Encode in smaller batches for gte-multilingual-base
-            embeddings = model.encode(
-                texts,
-                show_progress_bar=True,
-                batch_size=16,  # Smaller batch size
-                convert_to_numpy=True,
-                normalize_embeddings=True  # Use built-in normalization
-            )
-        else:
-            embeddings = model.encode(
-                texts,
-                show_progress_bar=True,
-                batch_size=32,
-                convert_to_numpy=True
-            )
+        # Apply multilingual-e5-base prefix if needed
+        if model_name == 'multilingual-e5-base':
+            texts = [f"passage: {t}" for t in texts]
+            logger.info(f"Applying 'passage: ' prefix for multilingual-e5-base")
         
-        # Normalize embeddings for cosine similarity (skip if already normalized)
-        if 'gte-multilingual-base' not in model_id:
-            embeddings = embeddings.astype(np.float32)  # Ensure float32 type
-            faiss.normalize_L2(embeddings)
-        else:
-            embeddings = embeddings.astype(np.float32)  # Ensure float32 type
+        logger.info(f"Encoding {len(texts)} translated documents...")
+        
+        # Generate embeddings
+        embeddings = model.encode(
+            texts,
+            show_progress_bar=True,
+            batch_size=32,
+            convert_to_numpy=True
+        )
+        
+        # Normalize embeddings for cosine similarity
+        embeddings = embeddings.astype(np.float32)
+        faiss.normalize_L2(embeddings)
         
         # Create FAISS index
         dimension = embeddings.shape[1]
@@ -90,22 +158,33 @@ def generate_embeddings_for_translated_corpus(model_name, model_id, translated_c
         
         # Save index
         faiss.write_index(index, str(index_path))
-        print(f"  Saved index with {index.ntotal} vectors to {index_path}")
+        logger.info(f"Saved index: {index_path}")
+        logger.info(f"  Vectors: {index.ntotal}")
+        logger.info(f"  Dimensions: {dimension}")
+        
+        end_time = datetime.now()
+        elapsed = end_time - start_time
+        
+        logger.info(f"\n{'='*80}")
+        logger.info(f"COMPLETED SUCCESSFULLY")
+        logger.info(f"End time: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"Elapsed time: {elapsed}")
+        logger.info(f"{'='*80}")
         
         return True
         
     except Exception as e:
-        print(f"  ERROR: {e}")
+        logger.error(f"\nERROR during embedding generation: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return False
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate embeddings for translated corpus")
+    parser = argparse.ArgumentParser(description="Generate embeddings for NLLB-translated corpus")
     parser.add_argument('--config', default='config.yaml', help='Path to config file')
     parser.add_argument('--embeddings-dir', default='embeddings', help='Directory to save embeddings')
-    parser.add_argument('--translated-corpus-dir', default='translated_corpus', help='Directory with translated corpus')
     parser.add_argument('--model', help='Generate embeddings for specific model only')
-    parser.add_argument('--test', action='store_true', help='Test mode (for consistency)')
     args = parser.parse_args()
     
     # Load config
@@ -120,61 +199,42 @@ def main():
     else:
         models_to_process = config['models']
     
-    # Find translated corpus files
-    translated_corpus_dir = Path(args.translated_corpus_dir)
-    corpus_files = list(translated_corpus_dir.glob("corpus_*_translated_en.json"))
+    print(f"{'='*80}")
+    print(f"TRANSLATED CORPUS EMBEDDING GENERATION")
+    print(f"{'='*80}")
+    print(f"Processing {len(models_to_process)} model(s) for languages: de, hi")
+    print(f"Translation model: nllb")
+    print(f"{'='*80}\n")
     
-    if not corpus_files:
-        print(f"ERROR: No translated corpus files found in {translated_corpus_dir}")
-        print("Expected files like: corpus_de_translated_en.json, corpus_hi_translated_en.json")
-        return
+    # Languages with translated corpus (skip English)
+    languages = ['de', 'hi']
     
-    print(f"Found {len(corpus_files)} translated corpus files:")
-    for f in corpus_files:
-        print(f"  - {f.name}")
-    
-    print(f"\nGenerating embeddings for {len(models_to_process)} model(s)")
-    
-    total_indices = 0
+    total_success = 0
+    total_jobs = len(models_to_process) * len(languages)
     
     # Process each model
     for model_name, model_id in models_to_process.items():
-        print(f"\n{'='*80}")
-        print(f"MODEL: {model_name}")
-        print(f"{'='*80}")
-        
-        # Process each translated corpus
-        for corpus_file in corpus_files:
-            # Extract original language from filename: corpus_de_translated_en.json -> de
-            original_lang = corpus_file.stem.split('_')[1]  # corpus_de_translated_en -> de
-            
-            print(f"\nLoading translated corpus: {corpus_file.name}")
-            translated_corpus = load_translated_corpus(corpus_file)
-            
+        # Process each language
+        for lang in languages:
             success = generate_embeddings_for_translated_corpus(
                 model_name,
                 model_id,
-                translated_corpus,
+                lang,
                 args.embeddings_dir,
-                original_lang
+                translation_model='nllb'
             )
             
             if success:
-                total_indices += 1
+                total_success += 1
+            
+            print()  # Blank line between jobs
     
-    # Summary
-    print(f"\n{'='*60}")
-    print(f"SUMMARY")
-    print(f"{'='*60}")
-    print(f"Total indices generated: {total_indices}")
-    
-    # Calculate disk usage
-    embeddings_path = Path(args.embeddings_dir)
-    if embeddings_path.exists():
-        translated_indices = list(embeddings_path.glob("*_translated_en.index"))
-        if translated_indices:
-            total_size = sum(f.stat().st_size for f in translated_indices)
-            print(f"Translated corpus embeddings: {total_size / (1024**2):.2f} MB")
+    # Final summary
+    print(f"{'='*80}")
+    print(f"FINAL SUMMARY")
+    print(f"{'='*80}")
+    print(f"Successful: {total_success}/{total_jobs}")
+    print(f"{'='*80}")
 
 
 if __name__ == "__main__":

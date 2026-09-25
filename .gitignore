@@ -23,17 +23,18 @@ wheels/
 .installed.cfg
 *.egg
 
-# Generated data
+# Generated data (large, regenerable via pipeline scripts)
 embeddings/
-results/
-negatives/
-training_data/
-models/
+translated_corpus/
+translated_queries/
 
-# Cache - but track translation cache (valuable)
+# Cache - track the main cache (saves re-translation), ignore backups
 cache/*
 !cache/translation_cache.json
 !cache/.gitkeep
+
+# Logs - operational/ephemeral, not committed
+logs/
 
 # Jupyter
 .ipynb_checkpoints
@@ -47,7 +48,3 @@ cache/*
 # OS
 .DS_Store
 Thumbs.db
-
-# Logs
-*.log
-*_log.txt

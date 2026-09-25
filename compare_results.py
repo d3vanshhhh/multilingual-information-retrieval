@@ -25,7 +25,7 @@ def load_results():
     return summary, winloss
 
 
-def plot_model_comparison(summary_df):
+def plot_model_comparison(summary_df, show_plot=True):
     """Plot nDCG@10 comparison across models."""
     if 'avg_ndcg@10' not in summary_df.columns:
         print("⚠️  nDCG@10 column not found")
@@ -50,65 +50,52 @@ def plot_model_comparison(summary_df):
     
     fig.write_html('results/model_comparison.html')
     print("✅ Saved: results/model_comparison.html")
-    fig.show()
+    
+    if show_plot:
+        fig.show()
 
 
-def plot_pipeline_winloss(winloss_df):
-    """Plot win/loss analysis."""
+def plot_model_language_winloss(winloss_df, show_plot=True):
+    """
+    Plot direct vs translate performance by model and language.
+    Creates grouped bar chart with language facets.
+    """
     if winloss_df is None:
         print("⚠️  No win/loss data found")
         return
     
-    # Count wins
-    win_counts = winloss_df['Winner'].value_counts()
-    
-    fig = px.pie(
-        values=win_counts.values,
-        names=win_counts.index,
-        title='Pipeline Win/Loss Across Languages',
-        color=win_counts.index,
-        color_discrete_map={'Direct': '#1f77b4', 'Translate': '#ff7f0e'}
-    )
-    
-    fig.write_html('results/pipeline_winloss.html')
-    print("✅ Saved: results/pipeline_winloss.html")
-    fig.show()
-
-
-def plot_language_performance(winloss_df):
-    """Plot performance by language."""
-    if winloss_df is None:
-        print("⚠️  No win/loss data found")
-        return
-    
-    # Melt the dataframe for plotting
+    # Melt the dataframe from wide to long format
     df_melted = winloss_df.melt(
-        id_vars=['Language'],
-        value_vars=['Direct_nDCG', 'Translate_nDCG'],
+        id_vars=['Model', 'Language'],
+        value_vars=['Direct_nDCG@10', 'Translate_nDCG@10'],
         var_name='Pipeline',
         value_name='nDCG@10'
     )
     
-    df_melted['Pipeline'] = df_melted['Pipeline'].str.replace('_nDCG', '')
+    # Clean up pipeline names
+    df_melted['Pipeline'] = df_melted['Pipeline'].str.replace('_nDCG@10', '')
     
+    # Create grouped bar chart with language facets
     fig = px.bar(
         df_melted,
-        x='Language',
+        x='Model',
         y='nDCG@10',
         color='Pipeline',
+        facet_col='Language',
         barmode='group',
-        title='Performance by Language',
+        title='Direct vs Translate Performance by Model and Language',
+        labels={'nDCG@10': 'nDCG@10'},
         color_discrete_map={'Direct': '#1f77b4', 'Translate': '#ff7f0e'}
     )
     
-    fig.update_layout(
-        xaxis_tickangle=-45,
-        height=500
-    )
+    fig.update_xaxes(tickangle=-45)
+    fig.update_layout(height=500)
     
-    fig.write_html('results/language_performance.html')
-    print("✅ Saved: results/language_performance.html")
-    fig.show()
+    fig.write_html('results/model_language_winloss.html')
+    print("✅ Saved: results/model_language_winloss.html")
+    
+    if show_plot:
+        fig.show()
 
 
 def print_summary_stats(summary_df, winloss_df):
@@ -173,7 +160,7 @@ def export_latex_table(summary_df):
 
 def main():
     parser = argparse.ArgumentParser(description="Compare evaluation results")
-    parser.add_argument('--no-plots', action='store_true', help='Skip interactive plots')
+    parser.add_argument('--no-plots', action='store_true', help='Skip interactive plots (still saves HTML files)')
     parser.add_argument('--latex', action='store_true', help='Export LaTeX table')
     args = parser.parse_args()
     
@@ -188,12 +175,11 @@ def main():
     # Print summary
     print_summary_stats(summary_df, winloss_df)
     
-    # Generate plots
-    if not args.no_plots:
-        print("\nGenerating visualizations...")
-        plot_model_comparison(summary_df)
-        plot_pipeline_winloss(winloss_df)
-        plot_language_performance(winloss_df)
+    # Generate plots (HTML files always saved, interactive display controlled by --no-plots)
+    print("\nGenerating visualizations...")
+    show_interactive = not args.no_plots
+    plot_model_comparison(summary_df, show_plot=show_interactive)
+    plot_model_language_winloss(winloss_df, show_plot=show_interactive)
     
     # Export LaTeX
     if args.latex:

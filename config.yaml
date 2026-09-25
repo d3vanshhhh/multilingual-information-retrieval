@@ -11,7 +11,6 @@ models:
 
 translation_models:
   nllb: facebook/nllb-200-distilled-600M
-  m2m100: facebook/m2m100_418M
 
 query_dataset: ellamind/wikipedia-2023-11-retrieval-multilingual-queries
 corpus_dataset: ellamind/wikipedia-2023-11-retrieval-multilingual-corpus
