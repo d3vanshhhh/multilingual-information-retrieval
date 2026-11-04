@@ -10,3 +10,4 @@ huggingface-hub>=0.16.0
 pyyaml>=6.0
 plotly>=5.15.0
 sentencepiece>=0.1.99
+kaleido>=1.0.0

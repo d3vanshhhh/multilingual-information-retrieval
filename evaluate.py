@@ -206,6 +206,7 @@ def evaluate_direct_pipeline(model_name, model_id, language, config, k_values, t
     # Compute metrics for each query
     logger.info(f"Computing metrics...")
     all_metrics = []
+    per_query_metrics = []  # Collect per-query nDCG@10 for significance testing
     
     for i, query in enumerate(queries_to_eval):
         query_id = query['_id']
@@ -215,6 +216,7 @@ def evaluate_direct_pipeline(model_name, model_id, language, config, k_values, t
         qrels_for_query = qrels[query_id]
         metrics = compute_metrics(retrieved_doc_ids, qrels_for_query, k_values)
         all_metrics.append(metrics)
+        per_query_metrics.append({'query_id': query_id, 'ndcg@10': metrics['ndcg@10']})
     
     # Average metrics across queries
     avg_metrics = {}
@@ -227,6 +229,15 @@ def evaluate_direct_pipeline(model_name, model_id, language, config, k_values, t
         logger.info(f"  P@{k}: {avg_metrics[f'precision@{k}']:.4f}, "
                    f"S@{k}: {avg_metrics[f'success@{k}']:.4f}, "
                    f"nDCG@{k}: {avg_metrics[f'ndcg@{k}']:.4f}")
+    
+    # Save per-query metrics if not in test mode
+    if not test_mode:
+        per_query_dir = Path('results') / 'per_query'
+        per_query_dir.mkdir(parents=True, exist_ok=True)
+        per_query_file = per_query_dir / f"{model_name}_direct_{language}.csv"
+        per_query_df = pd.DataFrame(per_query_metrics)
+        per_query_df.to_csv(per_query_file, index=False)
+        logger.info(f"Saved per-query metrics to {per_query_file}")
     
     # Build result row
     result = {
@@ -338,6 +349,7 @@ def evaluate_translate_pipeline(model_name, model_id, language, config, k_values
     # Compute metrics for each query
     logger.info(f"Computing metrics...")
     all_metrics = []
+    per_query_metrics = []  # Collect per-query nDCG@10 for significance testing
     
     for i, query in enumerate(queries_to_eval):
         query_id = query['_id']
@@ -347,6 +359,7 @@ def evaluate_translate_pipeline(model_name, model_id, language, config, k_values
         qrels_for_query = qrels[query_id]
         metrics = compute_metrics(retrieved_doc_ids, qrels_for_query, k_values)
         all_metrics.append(metrics)
+        per_query_metrics.append({'query_id': query_id, 'ndcg@10': metrics['ndcg@10']})
     
     # Average metrics across queries
     avg_metrics = {}
@@ -360,6 +373,15 @@ def evaluate_translate_pipeline(model_name, model_id, language, config, k_values
                    f"S@{k}: {avg_metrics[f'success@{k}']:.4f}, "
                    f"nDCG@{k}: {avg_metrics[f'ndcg@{k}']:.4f}")
     
+    # Save per-query metrics if not in test mode
+    if not test_mode:
+        per_query_dir = Path('results') / 'per_query'
+        per_query_dir.mkdir(parents=True, exist_ok=True)
+        per_query_file = per_query_dir / f"{model_name}_translate_{language}.csv"
+        per_query_df = pd.DataFrame(per_query_metrics)
+        per_query_df.to_csv(per_query_file, index=False)
+        logger.info(f"Saved per-query metrics to {per_query_file}")
+    
     # Build result row
     result = {
         'language': language,
@@ -372,7 +394,7 @@ def evaluate_translate_pipeline(model_name, model_id, language, config, k_values
     return result
 
 
-def check_if_complete(model_name, pipeline, languages, config, test_mode):
+def check_if_complete(model_name, pipeline, languages, config, test_mode, force):
     """
     Check if evaluation is already complete for this (model, pipeline) combination.
     
@@ -382,12 +404,13 @@ def check_if_complete(model_name, pipeline, languages, config, test_mode):
         languages: List of languages to evaluate
         config: Configuration dict
         test_mode: If True, always return False (test runs don't satisfy resumability)
+        force: If True, always return False (force recomputation)
     
     Returns:
         True if evaluation is complete, False otherwise
     """
-    # Test mode runs are never considered complete (they're for verification only)
-    if test_mode:
+    # Force mode or test mode runs are never considered complete
+    if force or test_mode:
         return False
     
     results_path = Path('results') / 'per_language' / f"{model_name}_{pipeline}.csv"
@@ -477,9 +500,23 @@ def build_summary_csv(logger):
         model = df['model'].iloc[0]
         pipeline = df['pipeline'].iloc[0]
         
-        # Average all numeric columns across languages
-        numeric_cols = df.select_dtypes(include=[np.number]).columns
-        avg_metrics = df[numeric_cols].mean().to_dict()
+        # Extract English nDCG@10 if it exists (direct pipeline only)
+        en_ndcg10 = None
+        en_row = df[df['language'] == 'en']
+        if not en_row.empty:
+            en_ndcg10 = en_row['ndcg@10'].iloc[0]
+        
+        # Exclude English from averaging - we only want to compare over non-English languages
+        # where both pipelines (direct and translate) have results
+        df_non_en = df[df['language'] != 'en']
+        
+        if df_non_en.empty:
+            logger.warning(f"No non-English results for {model}/{pipeline}")
+            continue
+        
+        # Average all numeric columns across non-English languages only
+        numeric_cols = df_non_en.select_dtypes(include=[np.number]).columns
+        avg_metrics = df_non_en[numeric_cols].mean().to_dict()
         
         row = {
             'model': model,
@@ -487,6 +524,7 @@ def build_summary_csv(logger):
             **{f'avg_{k}': v for k, v in avg_metrics.items() if k != 'num_queries'}
         }
         row['avg_num_queries'] = avg_metrics.get('num_queries', 0)
+        row['en_ndcg@10'] = en_ndcg10 if en_ndcg10 is not None else np.nan
         
         summary_rows.append(row)
     
@@ -570,6 +608,8 @@ def main():
     parser.add_argument('--models', nargs='+', help='Models to evaluate (default: all from config)')
     parser.add_argument('--languages', nargs='+', help='Languages to evaluate (default: all from config)')
     parser.add_argument('--test', action='store_true', help='Test mode: limit queries per language')
+    parser.add_argument('--force', action='store_true', help='Force recomputation even if results exist')
+    parser.add_argument('--summary-only', action='store_true', help='Rebuild summary and winloss CSVs from existing per-language results without recomputing')
     args = parser.parse_args()
     
     # Setup logging
@@ -581,8 +621,29 @@ def main():
     logger.info(f"{'='*80}")
     logger.info(f"MULTILINGUAL IR EVALUATION")
     logger.info(f"{'='*80}")
+    
+    # Summary-only mode: rebuild summary files without evaluation
+    if args.summary_only:
+        logger.info(f"SUMMARY-ONLY MODE: Rebuilding summary files from existing per-language results")
+        logger.info(f"Log file: {log_file}")
+        logger.info(f"{'='*80}")
+        
+        # Load config to get languages
+        config = load_config(args.config)
+        languages_to_eval = args.languages if args.languages else config['languages']
+        
+        # Build summary and winloss CSV files
+        build_summary_csv(logger)
+        build_winloss_csv(languages_to_eval, logger)
+        
+        logger.info(f"\n{'='*80}")
+        logger.info(f"SUMMARY REBUILD COMPLETE")
+        logger.info(f"{'='*80}")
+        return
+    
     logger.info(f"Device: {device}")
     logger.info(f"Test mode: {args.test}")
+    logger.info(f"Force mode: {args.force}")
     logger.info(f"Log file: {log_file}")
     logger.info(f"{'='*80}")
     
@@ -604,7 +665,7 @@ def main():
         
         # DIRECT PIPELINE
         pipeline = 'direct'
-        if check_if_complete(model_name, pipeline, languages_to_eval, config, args.test):
+        if check_if_complete(model_name, pipeline, languages_to_eval, config, args.test, args.force):
             logger.info(f"\n{'='*80}")
             logger.info(f"SKIPPING {model_name} / {pipeline} - already complete")
             logger.info(f"{'='*80}")
@@ -630,7 +691,7 @@ def main():
         pipeline = 'translate'
         translate_languages = [lang for lang in languages_to_eval if lang != 'en']
         
-        if check_if_complete(model_name, pipeline, translate_languages, config, args.test):
+        if check_if_complete(model_name, pipeline, translate_languages, config, args.test, args.force):
             logger.info(f"\n{'='*80}")
             logger.info(f"SKIPPING {model_name} / {pipeline} - already complete")
             logger.info(f"{'='*80}")

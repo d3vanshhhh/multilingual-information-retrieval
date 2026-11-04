@@ -37,8 +37,8 @@ def plot_model_comparison(summary_df, show_plot=True):
         y='avg_ndcg@10',
         color='pipeline',
         barmode='group',
-        title='Model Performance Comparison (nDCG@10)',
-        labels={'avg_ndcg@10': 'Average nDCG@10', 'model': 'Model'},
+        title='Mean nDCG@10 over non-English languages: Direct vs Translate',
+        labels={'avg_ndcg@10': 'Mean nDCG@10 (non-English)', 'model': 'Model'},
         color_discrete_map={'direct': '#1f77b4', 'translate': '#ff7f0e'}
     )
     
@@ -50,6 +50,13 @@ def plot_model_comparison(summary_df, show_plot=True):
     
     fig.write_html('results/model_comparison.html')
     print("✅ Saved: results/model_comparison.html")
+    
+    try:
+        fig.write_image('results/model_comparison.png', width=1200, height=600, scale=2)
+        print("✅ Saved: results/model_comparison.png")
+    except Exception as e:
+        print(f"⚠️  Could not export PNG: {e}")
+        print("    Hint: run `plotly_get_chrome -y` to install Chrome for image export")
     
     if show_plot:
         fig.show()
@@ -93,6 +100,13 @@ def plot_model_language_winloss(winloss_df, show_plot=True):
     
     fig.write_html('results/model_language_winloss.html')
     print("✅ Saved: results/model_language_winloss.html")
+    
+    try:
+        fig.write_image('results/model_language_winloss.png', width=1400, height=600, scale=2)
+        print("✅ Saved: results/model_language_winloss.png")
+    except Exception as e:
+        print(f"⚠️  Could not export PNG: {e}")
+        print("    Hint: run `plotly_get_chrome -y` to install Chrome for image export")
     
     if show_plot:
         fig.show()

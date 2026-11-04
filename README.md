@@ -1,10 +1,40 @@
 # Multilingual Retrieval: Direct vs. Translate-then-Retrieve
 
-A comparison of two approaches to cross-lingual information retrieval — embedding documents directly in their native language versus machine-translating them to English first — across six sentence-embedding models, for German and Hindi queries against an English-pivot corpus.
+A comparison of two approaches to cross-lingual information retrieval — embedding documents directly in their native language versus machine-translating them to English first — across six sentence-embedding models, for German and Hindi against an English-pivot setup.
 
-The core question: **for a given embedding model, does translating everything to English before retrieval help or hurt?** The answer turns out to depend heavily on whether the model was trained to be multilingual in the first place.
+The core question: **for a given embedding model, does translating everything to English before retrieval help or hurt?** The answer depends almost entirely on whether the model was trained to be multilingual.
 
-Evaluation uses the full corpus and query set (13,500 documents and 1,500 queries per language) with graded relevance judgments (nDCG computed from actual relevance scores, not just binary presence/absence).
+Evaluation uses the full corpus and query set (13,500 documents and 1,500 queries per language) with graded relevance judgments: per query there is on average one fully relevant (1.0) and eight partially relevant (0.5) documents, and nDCG is computed from those grades rather than from binary relevance.
+
+## Results
+
+Mean nDCG@10 over the two non-English languages (German and Hindi), 1,500 queries each. Both pipelines are averaged over the same languages. The English column is a reference only: English queries and documents differ from the German and Hindi ones, so it is not directly comparable.
+
+| Model | Direct | Translate | Translate − Direct | English (direct, reference) |
+|---|---|---|---|---|
+| bge-m3 | **0.7035** | 0.6228 | −0.081 | 0.7842 |
+| multilingual-e5-base | **0.6926** | 0.6056 | −0.087 | 0.7783 |
+| paraphrase-multilingual-MiniLM-L12-v2 | 0.4229 | **0.4538** | +0.031 | 0.6477 |
+| stella-base-en-v2 | 0.2741 | **0.5524** | +0.278 | 0.7670 |
+| all-mpnet-base-v2 | 0.2730 | **0.5479** | +0.275 | 0.7719 |
+| all-MiniLM-L6-v2 | 0.2393 | **0.5401** | +0.301 | 0.7506 |
+
+![Direct vs translate by model](results/model_comparison.png)
+
+### Findings
+
+1. **Strong multilingual embedders do better on native text.** bge-m3 and multilingual-e5-base lose 0.08–0.09 nDCG@10 when the corpus is translated first (bge-m3: 0.732→0.664 on German, 0.675→0.582 on Hindi; multilingual-e5-base: 0.734→0.643 and 0.651→0.568). Translation discards signal these models already know how to use.
+2. **English-only embedders need translation.** On native Hindi, stella-base-en-v2, all-mpnet-base-v2 and all-MiniLM-L6-v2 score 0.03–0.07, close to unusable; translation lifts them to 0.53–0.54 on the same queries. After translation their German and Hindi scores land within 0.02 of each other, so translation largely removes the language gap for these models.
+3. **Translation never overtakes a good multilingual embedder.** The best English-only model on translated text (0.5524) stays well below either strong multilingual model used directly (0.69–0.70).
+4. **The middle case flips by language.** paraphrase-multilingual-MiniLM-L12-v2 does better direct on German and better translated on Hindi — consistent with a multilingual model whose coverage of Hindi is thinner than of German, though this was not tested directly.
+
+All 12 direct-vs-translate differences (6 models × 2 languages) are statistically significant: paired randomization test on per-query nDCG@10, Holm-corrected, adjusted p ≈ 0.0012 (the smallest value 10,000 permutations can give across 12 tests), and every 95% bootstrap confidence interval excludes zero (half-widths about 0.006–0.014). See `results/significance.csv`. This quantifies noise from sampling queries only; it says nothing about other datasets or translators.
+
+Per-language detail is in `results/winloss.csv` and `results/per_language/*.csv` (precision, success, MRR and nDCG at k = 1/5/10).
+
+![Direct vs translate by model and language](results/model_language_winloss.png)
+
+Recomputing the full evaluation from the saved indices reproduced all per-language result files exactly.
 
 ## Setup
 
@@ -18,17 +48,17 @@ pip install -r requirements.txt
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
 ```
 
-Verify everything is set up correctly:
+Static chart export (`compare_results.py`) uses `kaleido`, which needs a Chrome installation (`plotly_get_chrome -y` installs one if missing).
+
+Verify the setup:
 
 ```bash
 python test_setup.py
 ```
 
-This checks required packages, config validity, directory structure, GPU availability, and the translation cache.
-
 ## Running the pipeline
 
-The pipeline runs in this order. Each step is resumable — if interrupted, rerunning the same command picks up where it left off rather than starting over, via checkpointing and skip-if-complete logic.
+Each step is resumable: if interrupted, rerunning the same command continues from the last checkpoint instead of starting over.
 
 ```bash
 # 1. Translate the non-English corpus to English (NLLB)
@@ -39,41 +69,21 @@ python translate_corpus.py --language hi --translation-model nllb
 python translate_queries.py --language de --translation-model nllb
 python translate_queries.py --language hi --translation-model nllb
 
-# 3. Generate embeddings for native-language corpora (en, de, hi)
+# 3. Embeddings: native corpora, then translated corpora
 python generate_embeddings.py
-
-# 4. Generate embeddings for the translated corpora (de, hi)
 python generate_embeddings_translated.py
 
-# 5. Run the evaluation (all 6 models, both pipelines, full query set)
+# 4. Evaluate all models, both pipelines, full query set
 python evaluate.py
 
-# 6. Build result visualizations
+# 5. Significance tests on direct vs translate
+python significance_analysis.py
+
+# 6. Charts
 python compare_results.py --no-plots
 ```
 
-Each script also accepts `--model`/`--models` to target a single model, and `translate_corpus.py`/`translate_queries.py` accept `--language`. `evaluate.py` accepts `--test` to run a quick, reduced-query sanity check against the full indices without touching real results.
-
-## Results
-
-Average nDCG@10 across all queries (1,500/language), per model:
-
-| Model | Direct | Translate |
-|---|---|---|
-| bge-m3 | **0.7304** | 0.6228 |
-| multilingual-e5-base | **0.7212** | 0.6056 |
-| paraphrase-multilingual-MiniLM-L12-v2 | **0.4978** | 0.4538 |
-| stella-base-en-v2 | 0.4384 | **0.5524** |
-| all-mpnet-base-v2 | 0.4393 | **0.5479** |
-| all-MiniLM-L6-v2 | 0.4098 | **0.5401** |
-
-**The finding**: it splits cleanly along one line — whether the model was trained on multiple languages.
-
-- **bge-m3** and **multilingual-e5-base** (large multilingual models) do *better* embedding documents in their native language directly. Both lose several points of nDCG@10 once the corpus is translated first — translation strips out signal these models already know how to use natively (bge-m3: 0.732→0.664 on German, 0.675→0.582 on Hindi; multilingual-e5-base: 0.734→0.643 on German, 0.651→0.568 on Hindi).
-- **all-MiniLM-L6-v2**, **all-mpnet-base-v2**, and **stella-base-en-v2** (English-only models) are barely functional on native Hindi (nDCG@10 as low as 0.033 for all-MiniLM-L6-v2) but recover almost entirely once the corpus is translated to English first (up to 0.533 on the same language) — unsurprising, since they were never trained on Hindi text at all.
-- **paraphrase-multilingual-MiniLM-L12-v2**, a smaller multilingual model, sits in between and even flips by language — direct wins on German, translation wins on Hindi — plausibly because its multilingual training data covers German more thoroughly than Hindi.
-
-Full per-language, per-model breakdowns are in `results/winloss.csv`; per-language raw metrics (precision, success, MRR, nDCG at k=1/5/10) are in `results/per_language/*.csv`; aggregated summaries are in `results/summary.csv`. Interactive charts: `results/model_comparison.html` and `results/model_language_winloss.html`.
+Useful flags: `--model`/`--models` select specific models; `evaluate.py --force` recomputes even if results exist; `evaluate.py --summary-only` rebuilds `summary.csv` and `winloss.csv` from the existing per-language CSVs without recomputing anything; `evaluate.py --test` runs a reduced-query sanity check.
 
 ## Repo structure
 
@@ -89,17 +99,32 @@ Full per-language, per-model breakdowns are in `results/winloss.csv`; per-langua
 ├── translate_queries.py                 # queries → English (same pattern)
 ├── generate_embeddings.py               # native-language embeddings → FAISS indices
 ├── generate_embeddings_translated.py    # translated-corpus embeddings → FAISS indices
-├── evaluate.py                          # runs both pipelines, computes graded metrics
-├── compare_results.py                   # builds result visualizations
-├── embeddings/                          # FAISS indices (.index files)
-├── translated_corpus/                   # translated documents (JSON)
-├── translated_queries/                  # translated queries (JSON)
-├── cache/                               # translation cache + backups
-├── results/                             # per-model/language CSVs, summary, winloss, charts
-├── logs/                                # timestamped logs for every pipeline run
-└── audit/                               # scripts used to verify dataset integrity and benchmark hardware
+├── evaluate.py                          # both pipelines, graded metrics, per-query output
+├── significance_analysis.py             # paired randomization tests + bootstrap CIs
+├── compare_results.py                   # result charts
+├── embeddings/                          # FAISS indices (gitignored, regenerable)
+├── translated_corpus/                   # translated documents (gitignored, regenerable)
+├── translated_queries/                  # translated queries (gitignored, regenerable)
+├── cache/                               # translation cache
+├── results/                             # CSVs, significance table, PNG charts
+├── logs/                                # timestamped run logs (gitignored)
+└── audit/                               # dataset-integrity checks and hardware benchmarks
 ```
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for design details and [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for the bugs found and fixed along the way.
+
+## Relation to prior work
+
+This project was prompted by the TIFIN India system for SemEval-2025 Task 7 (Devadiga et al., 2025, *Harnessing Translation to Overcome Multilingual IR Challenges in Fact-Checked Claim Retrieval*), which translates posts to English with an LLM and retrieves with a fine-tuned English embedding model, and recommends translation plus a fine-tuned embedder over heavier post-processing. Their ablation measures the benefit of translation for one English-only embedder (Stella 400M). The comparison here asks the same question across six embedders and finds the benefit depends on the embedder: it holds for English-only models and reverses for strong multilingual ones. The two are not directly comparable — different task (fact-checked claim retrieval vs. Wikipedia retrieval), different metric (success@10 vs. graded nDCG@10), and they use LLM translation and fine-tuning, which are not used here.
+
+## Limitations
+
+- **Translator quality.** All translation uses NLLB-200-distilled-600M, a small model. A stronger (e.g. LLM-based) translator would likely raise the translate pipeline's scores, so the conclusion that direct beats translate for multilingual embedders is conditional on this translator.
+- **Two non-English languages and one dataset.** Findings about "language dependence" rest on German and Hindi only.
+- **Small collection.** 13,500 documents per language; absolute scores would be lower on larger collections.
+- **No fine-tuning, reranking or hybrid search.** All embedders are used as published.
+- **Significance covers query sampling only**, not translator, dataset or corpus choice.
 
 ## Future work
 
-Hard-negative mining and fine-tuning were part of an earlier version of this project but are out of scope here — they answer a different question (can retrieval be improved through training) than the one this project focuses on (how do existing models compare, as-is, across retrieval strategies). Similarly, an interactive search demo was cut in favor of keeping the project centered on the evaluation itself; a demo built directly on the FAISS indices and result data produced here would be a natural extension.
+Extending to the other languages available in the dataset, a stronger translator as an ablation, and fine-tuning with hard negatives (an earlier version of this project scaffolded it; it was cut to keep the focus on the retrieval comparison). An interactive search demo built on the saved indices is another natural extension.

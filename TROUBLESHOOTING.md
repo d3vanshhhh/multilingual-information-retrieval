@@ -74,3 +74,27 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 **Symptom**: after reworking how win/loss comparisons were computed (per model-and-language instead of averaged across all models into one number per language), the plotting script referenced columns that no longer existed.
 
 **Fix**: replaced the old aggregated pie/bar charts with a single faceted bar chart (one facet per language, bars grouped by model and colored by pipeline) — which is also a strictly more informative view, since averaging across models had been hiding the fact that different model types disagree about which pipeline wins.
+
+## 10. The summary table averaged different language sets for the two pipelines
+
+**Symptom**: `summary.csv` and the first README table showed English-only models gaining about +0.11 from translation, when the per-language results showed gains of +0.27 to +0.30.
+
+**Root cause**: the direct pipeline is evaluated on English, German and Hindi, but the translate pipeline only on German and Hindi (English needs no translation). Averaging each pipeline over its own languages therefore compared a three-language mean (including the easy English queries) with a two-language mean. For stella-base-en-v2 the reported direct average of 0.4384 was exactly (0.7670 + 0.4740 + 0.0741) / 3. The per-language numbers were correct; only the aggregate was misleading.
+
+**Fix**: `summary.csv` now averages both pipelines over the non-English languages only and reports English direct performance in a separate `en_ndcg@10` column. `evaluate.py --summary-only` rebuilds the summary and win/loss tables from existing per-language CSVs without recomputing anything.
+
+## 11. Resuming a partially finished evaluation
+
+**Symptom**: a full `evaluate.py --force` run was killed by a tool timeout after finishing three of six models. A plain rerun would have skipped the unfinished models entirely, and `--force` alone would have redone the finished ones.
+
+**Root cause**: resumability is decided per (model, pipeline) from the existing per-language CSV. The unfinished models still had complete CSVs from an earlier run, so they looked "done" even though the new per-query files had not been written for them.
+
+**Fix**: resume with `--force` restricted to the remaining models, e.g. `python evaluate.py --force --models <unfinished models>`. Long runs are now started manually in a terminal rather than through a tool with a fixed time limit.
+
+## 12. Intermittent GPU slowdowns
+
+**Symptom**: in one evaluation run, encoding 1,500 queries took anywhere from about one second to over seven minutes depending on the step, a roughly 100x swing. A rerun of the same code on the same data and machine ran at normal speed.
+
+**Status**: the cause was not isolated. Likely suspects are power or thermal throttling on a laptop GPU, contention from other GPU-using applications, or VRAM paging. The same kind of variance showed up as uneven checkpoint intervals in the long translation runs.
+
+**Mitigation**: before long runs, plug in the charger, set the power mode to Best performance, close GPU-heavy applications, and watch `nvidia-smi -l 5` in a second terminal. Every long stage checkpoints its progress, so a slow or killed run loses little.
