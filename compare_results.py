@@ -31,6 +31,9 @@ def plot_model_comparison(summary_df, show_plot=True):
         print("⚠️  nDCG@10 column not found")
         return
     
+    # Print the exact table passed to the plot
+    print(summary_df[['model','pipeline','avg_ndcg@10']].round(4).to_string(index=False))
+    
     fig = px.bar(
         summary_df,
         x='model',
@@ -39,7 +42,8 @@ def plot_model_comparison(summary_df, show_plot=True):
         barmode='group',
         title='Mean nDCG@10 over non-English languages: Direct vs Translate',
         labels={'avg_ndcg@10': 'Mean nDCG@10 (non-English)', 'model': 'Model'},
-        color_discrete_map={'direct': '#1f77b4', 'translate': '#ff7f0e'}
+        color_discrete_map={'direct': '#1f77b4', 'translate': '#ff7f0e'},
+        text_auto='.3f'
     )
     
     fig.update_layout(
@@ -92,7 +96,8 @@ def plot_model_language_winloss(winloss_df, show_plot=True):
         barmode='group',
         title='Direct vs Translate Performance by Model and Language',
         labels={'nDCG@10': 'nDCG@10'},
-        color_discrete_map={'Direct': '#1f77b4', 'Translate': '#ff7f0e'}
+        color_discrete_map={'Direct': '#1f77b4', 'Translate': '#ff7f0e'},
+        text_auto='.2f'
     )
     
     fig.update_xaxes(tickangle=-45)
