@@ -8,6 +8,8 @@ Evaluation uses the full corpus and query set (13,500 documents and 1,500 querie
 
 ## Results
 
+> **Status note (November 2026).** After these results were produced, an audit found that the translation step did not give NLLB the source-language tag (a tokenizer behaviour change in transformers v5) and that long documents were only partly translated. For example, 56% of German questions starting with "Was" ("what") came back with "Was" untranslated. The **translate-pipeline numbers below are therefore provisional** and are being recomputed with a corrected translator; the direct-pipeline numbers do not use translation and are unaffected. Details: [TROUBLESHOOTING.md](TROUBLESHOOTING.md), entry 13.
+
 Mean nDCG@10 over the two non-English languages (German and Hindi), 1,500 queries each. Both pipelines are averaged over the same languages. The English column is a reference only: English queries and documents differ from the German and Hindi ones, so it is not directly comparable.
 
 | Model | Direct | Translate | Translate − Direct | English (direct, reference) |

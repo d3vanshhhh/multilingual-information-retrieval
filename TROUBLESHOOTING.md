@@ -98,3 +98,17 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 **Status**: the cause was not isolated. Likely suspects are power or thermal throttling on a laptop GPU, contention from other GPU-using applications, or VRAM paging. The same kind of variance showed up as uneven checkpoint intervals in the long translation runs.
 
 **Mitigation**: before long runs, plug in the charger, set the power mode to Best performance, close GPU-heavy applications, and watch `nvidia-smi -l 5` in a second terminal. Every long stage checkpoints its progress, so a slow or killed run loses little.
+
+## 13. NLLB ran without the source-language tag, and long documents were only partly translated
+
+**Symptom**: German questions starting with "Was" ("what") came back with "Was" untranslated, e.g. "Was an untrue empire?". A full audit found this in 280 of 502 such questions (56%), and 293 of 1,500 German queries (19.5%) kept their first word unchanged; the figure for Hindi was 0 of 1,500. The same audit of the translated corpora found two more problems:
+- **Dropped content in long documents.** The median translated/source word ratio falls with source length, from 0.84 to 0.41 for Hindi and from 1.02 to 0.58 for German. 1,057 Hindi documents (7.8%) and 151 German documents (1.1%) kept less than half their words; among Hindi documents over 300 words it is 68%. Some translations start mid-document.
+- **Decoding loops.** 111 German and 83 Hindi corpus documents (0.8% and 0.6%) contain a word 4-gram repeated 20 or more times (up to 451), running to the 512-token output cap.
+
+**Root cause (language tag)**: with transformers 5.3.0, `AutoTokenizer.from_pretrained` returns a generic tokenizer for NLLB, and neither `tokenizer.src_lang = ...` nor `src_lang=` passed to `AutoTokenizer` has any effect. Every input ended in `<unk>` where the source-language token belongs (`[..., </s>, <unk>]`), identically for German, Hindi and English. `NllbTokenizer.from_pretrained(model_id, src_lang=code)` produces the documented `[lang] X </s>` layout, and with it all test sentences translated correctly ("Was ist eine unechte Empore?" becomes "What is a false empore?"). Without a tag the model must guess the source language: Latin-script German, which shares many words with English, suffered most, while Hindi's script gave it an obvious cue.
+
+**Root cause (dropped content)**: NLLB is a sentence-level model, and fed whole multi-sentence passages it tends to skip content. Truncation at 512 tokens is not the main cause: at most 0.76% of documents in any language exceed 512 NLLB tokens.
+
+**Status**: the tag problem is identified and the fix is confirmed on test sentences. Segmentation and loop control are being validated on a sample before the corpora are re-translated. The translate-pipeline results (not the direct ones) will be recomputed and this entry updated.
+
+**Lesson**: a translation step can fail silently while producing fluent output. The checks that found this were cheap: look at the token ids, count how often outputs keep the source's first word, and compare translated and source lengths by document length.
