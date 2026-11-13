@@ -28,9 +28,8 @@ embeddings/
 translated_corpus/
 translated_queries/
 
-# Cache - track the main cache (saves re-translation), ignore backups
-cache/*
-!cache/translation_cache.json
+# Translation caches (regenerable; translation takes ~15-25 min per language)
+cache/*.json
 !cache/.gitkeep
 
 # Logs - operational/ephemeral, not committed

@@ -1,5 +1,5 @@
 """
-Generate embeddings for NLLB-translated corpus with resumability and logging.
+Generate embeddings for translated corpus with resumability and logging.
 """
 
 import argparse
@@ -12,6 +12,7 @@ import torch
 from sentence_transformers import SentenceTransformer
 from pathlib import Path
 from datetime import datetime
+from utils import TRANSLATION_TAG
 
 
 def setup_logging(model_name, language):
@@ -58,7 +59,7 @@ def load_translated_corpus(corpus_file):
         return json.load(f)
 
 
-def generate_embeddings_for_translated_corpus(model_name, model_id, language, embeddings_dir, translation_model='nllb'):
+def generate_embeddings_for_translated_corpus(model_name, model_id, language, embeddings_dir, translation_model):
     """
     Generate embeddings for translated corpus with resumability.
     
@@ -67,7 +68,7 @@ def generate_embeddings_for_translated_corpus(model_name, model_id, language, em
         model_id: HuggingFace model ID
         language: Original language code (de, hi)
         embeddings_dir: Directory to save embeddings
-        translation_model: Translation model used (default: nllb)
+        translation_model: Translation model tag used
     """
     # Set up logging
     logger, log_file = setup_logging(model_name, language)
@@ -181,7 +182,7 @@ def generate_embeddings_for_translated_corpus(model_name, model_id, language, em
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate embeddings for NLLB-translated corpus")
+    parser = argparse.ArgumentParser(description="Generate embeddings for translated corpus")
     parser.add_argument('--config', default='config.yaml', help='Path to config file')
     parser.add_argument('--embeddings-dir', default='embeddings', help='Directory to save embeddings')
     parser.add_argument('--model', help='Generate embeddings for specific model only')
@@ -189,6 +190,9 @@ def main():
     
     # Load config
     config = load_config(args.config)
+    
+    # Get translated languages (all except 'en')
+    languages = [lang for lang in config['languages'] if lang != 'en']
     
     # Determine which models to process
     if args.model:
@@ -202,12 +206,9 @@ def main():
     print(f"{'='*80}")
     print(f"TRANSLATED CORPUS EMBEDDING GENERATION")
     print(f"{'='*80}")
-    print(f"Processing {len(models_to_process)} model(s) for languages: de, hi")
-    print(f"Translation model: nllb")
+    print(f"Processing {len(models_to_process)} model(s) for languages: {', '.join(languages)}")
+    print(f"Translation model: {TRANSLATION_TAG}")
     print(f"{'='*80}\n")
-    
-    # Languages with translated corpus (skip English)
-    languages = ['de', 'hi']
     
     total_success = 0
     total_jobs = len(models_to_process) * len(languages)
@@ -221,7 +222,7 @@ def main():
                 model_id,
                 lang,
                 args.embeddings_dir,
-                translation_model='nllb'
+                translation_model=TRANSLATION_TAG
             )
             
             if success:

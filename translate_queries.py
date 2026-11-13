@@ -1,5 +1,5 @@
 """
-Translate queries to English with batched GPU translation, resumability, and logging.
+Translate queries to English with sentence-level translation, resumability, and logging.
 """
 import argparse
 import yaml
@@ -10,7 +10,7 @@ from datetime import datetime
 from datasets import load_dataset
 from tqdm import tqdm
 from translation_cache import TranslationCache
-from utils import translate_batch_to_english
+from utils import translate_batch_to_english, TRANSLATION_TAG, LAST_STATS
 
 
 def setup_logging(language, translation_model):
@@ -79,7 +79,7 @@ def save_translated_queries(translated_queries, output_file):
 
 
 def translate_queries_for_language(language, config, translation_model, cache, logger=None):
-    """Translate queries with batched translation, resumability, and checkpointing"""
+    """Translate queries with sentence-level translation, resumability, and checkpointing"""
     if language == 'en':
         logger.info(f"[{language}] Skipping - already English")
         return None
@@ -135,8 +135,7 @@ def translate_queries_for_language(language, config, translation_model, cache, l
     
     logger.info(f"[{language}] Queries remaining to translate: {len(queries_to_translate)}")
     
-    # Translate in batches
-    batch_size = 8
+    # Translate in chunks
     checkpoint_interval = 500
     
     cache_hits_start = cache.hits
@@ -144,7 +143,7 @@ def translate_queries_for_language(language, config, translation_model, cache, l
     
     texts_to_translate = [query['text'] for query in queries_to_translate]
     
-    logger.info(f"[{language}] Translating {len(texts_to_translate)} queries in batches of {batch_size}...")
+    logger.info(f"[{language}] Translating {len(texts_to_translate)} queries...")
     
     # Process in chunks for progress tracking and checkpointing
     translated_count = 0
@@ -156,14 +155,15 @@ def translate_queries_for_language(language, config, translation_model, cache, l
         chunk_queries = queries_to_translate[chunk_start:chunk_end]
         chunk_texts = [query['text'] for query in chunk_queries]
         
-        # Translate this chunk (already batched internally)
+        # Translate this chunk
+        chunk_start_time = datetime.now()
         chunk_translations = translate_batch_to_english(
             chunk_texts,
             language,
             model_name=translation_model,
-            cache=cache,
-            batch_size=batch_size
+            cache=cache
         )
+        chunk_elapsed = (datetime.now() - chunk_start_time).total_seconds()
         
         # Add translated queries to dict
         for query, translated_text in zip(chunk_queries, chunk_translations):
@@ -175,14 +175,23 @@ def translate_queries_for_language(language, config, translation_model, cache, l
             translated_queries_dict[query['_id']] = translated_query
             translated_count += 1
         
-        # Checkpoint every 500 queries
+        # Log chunk stats
+        chunk_num = (chunk_start // checkpoint_interval) + 1
+        logger.info(f"[{language}] Chunk {chunk_num}: {len(chunk_queries)} queries done | "
+                   f"sentences={LAST_STATS['sentences']}, "
+                   f"loop_fallbacks={LAST_STATS['loop_fallbacks']}, "
+                   f"empty_sentence_outputs={LAST_STATS['empty_sentence_outputs']}, "
+                   f"time={LAST_STATS['seconds']:.1f}s, "
+                   f"qpm={len(chunk_queries) / (chunk_elapsed / 60):.1f}")
+        
+        # Checkpoint
         if translated_count % checkpoint_interval == 0 or chunk_end == len(queries_to_translate):
             # Save in query set order
             translated_queries_list = [translated_queries_dict[query['_id']] for query in queries_dataset 
                                       if query['_id'] in translated_queries_dict]
             save_translated_queries(translated_queries_list, output_file)
-            logger.info(f"[{language}] Checkpoint: saved {len(translated_queries_list)}/{target_count} queries")
             cache.save()  # Also save cache
+            logger.info(f"[{language}] Checkpoint: saved {len(translated_queries_list)}/{target_count} queries and cache")
     
     # Final save (ensure query set order)
     translated_queries_list = [translated_queries_dict[query['_id']] for query in queries_dataset]
@@ -208,10 +217,10 @@ def translate_queries_for_language(language, config, translation_model, cache, l
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Translate queries to English with batched GPU translation")
+    parser = argparse.ArgumentParser(description="Translate queries to English with sentence-level translation")
     parser.add_argument('--config', default='config.yaml', help='Path to config file')
     parser.add_argument('--language', required=True, help='Language to translate (required)')
-    parser.add_argument('--translation-model', required=True, choices=['nllb'], 
+    parser.add_argument('--translation-model', required=True, choices=['nllb-v2'], 
                         help='Translation model to use (required)')
     args = parser.parse_args()
     
@@ -227,7 +236,7 @@ def main():
     logger.info(f"{'='*80}")
     
     config = load_config(args.config)
-    cache = TranslationCache()
+    cache = TranslationCache(name=f"{args.translation_model}_{args.language}")
     
     try:
         translated_queries = translate_queries_for_language(

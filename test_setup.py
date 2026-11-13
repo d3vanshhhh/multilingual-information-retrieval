@@ -125,20 +125,31 @@ def test_translation_cache():
     try:
         from translation_cache import TranslationCache
         from pathlib import Path
+        from utils import TRANSLATION_TAG
         
-        cache_file = Path('cache/translation_cache.json')
+        # Count entries in nllb-v2 cache files only
+        cache_dir = Path('cache')
+        cache_pattern = f'translation_cache_{TRANSLATION_TAG}_*.json'
+        cache_files = list(cache_dir.glob(cache_pattern))
         
-        if not cache_file.exists():
-            print(f"  ⚠️  Cache file not found: {cache_file}")
+        if not cache_files:
+            print(f"  ⚠️  No {TRANSLATION_TAG} cache files found in {cache_dir}")
             print(f"     This is normal for first run - will be created during translation")
             return True
         
-        cache = TranslationCache()
-        entry_count = len(cache.cache)
+        total_entries = 0
+        for cache_file in cache_files:
+            try:
+                # Extract language from filename
+                cache_name = cache_file.stem.replace('translation_cache_', '')
+                cache = TranslationCache(name=cache_name)
+                entry_count = len(cache.cache)
+                total_entries += entry_count
+                print(f"  ✓ {cache_file.name}: {entry_count} entries")
+            except Exception as e:
+                print(f"  ⚠️  Could not load {cache_file.name}: {e}")
         
-        print(f"  ✓ Cache file exists and is loadable")
-        print(f"  ✓ Current cache entries: {entry_count}")
-        
+        print(f"  ✓ Total cache entries: {total_entries}")
         print("\n✅ Translation cache ready!")
         return True
     except Exception as e:
@@ -173,14 +184,15 @@ def main():
     if all_passed:
         print("\n🎉 All tests passed! You're ready to go.")
         print("\nNext steps:")
-        print("  1. Translate corpus: python translate_corpus.py --language de --translation-model nllb")
-        print("                       python translate_corpus.py --language hi --translation-model nllb")
-        print("  2. Translate queries: python translate_queries.py --language de --translation-model nllb")
-        print("                        python translate_queries.py --language hi --translation-model nllb")
+        print("  1. Translate corpus: python translate_corpus.py --language de --translation-model nllb-v2")
+        print("                       python translate_corpus.py --language hi --translation-model nllb-v2")
+        print("  2. Translate queries: python translate_queries.py --language de --translation-model nllb-v2")
+        print("                        python translate_queries.py --language hi --translation-model nllb-v2")
         print("  3. Generate embeddings (native): python generate_embeddings.py")
         print("  4. Generate embeddings (translated): python generate_embeddings_translated.py")
         print("  5. Evaluate: python evaluate.py")
-        print("  6. Compare results: python compare_results.py --no-plots")
+        print("  6. Analyze significance: python significance_analysis.py")
+        print("  7. Compare results: python compare_results.py --no-plots")
     else:
         print("\n⚠️  Some tests failed. Please fix the issues above.")
         sys.exit(1)

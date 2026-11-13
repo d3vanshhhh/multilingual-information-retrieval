@@ -15,6 +15,7 @@ from datasets import load_dataset
 from sentence_transformers import SentenceTransformer
 from collections import defaultdict
 from math import log2
+from utils import TRANSLATION_TAG
 
 
 def setup_logging():
@@ -267,7 +268,7 @@ def evaluate_translate_pipeline(model_name, model_id, language, config, k_values
     logger.info(f"{'='*80}")
     
     # Load translated corpus index
-    index_path = Path('embeddings') / f"{model_name}_{language}_translated_en_nllb.index"
+    index_path = Path('embeddings') / f"{model_name}_{language}_translated_en_{TRANSLATION_TAG}.index"
     if not index_path.exists():
         logger.error(f"Translated index not found: {index_path}")
         return None
@@ -277,7 +278,7 @@ def evaluate_translate_pipeline(model_name, model_id, language, config, k_values
     logger.info(f"Index loaded: {index.ntotal} vectors, dim={index.d}")
     
     # Load translated corpus to get doc_ids in index order
-    corpus_path = Path('translated_corpus') / f"corpus_{language}_translated_en_nllb.json"
+    corpus_path = Path('translated_corpus') / f"corpus_{language}_translated_en_{TRANSLATION_TAG}.json"
     logger.info(f"Loading translated corpus: {corpus_path}")
     with open(corpus_path, 'r', encoding='utf-8') as f:
         translated_corpus = json.load(f)
@@ -285,7 +286,7 @@ def evaluate_translate_pipeline(model_name, model_id, language, config, k_values
     logger.info(f"Translated corpus loaded: {len(doc_ids)} documents")
     
     # Load translated queries
-    queries_path = Path('translated_queries') / f"queries_{language}_translated_en_nllb.json"
+    queries_path = Path('translated_queries') / f"queries_{language}_translated_en_{TRANSLATION_TAG}.json"
     logger.info(f"Loading translated queries: {queries_path}")
     with open(queries_path, 'r', encoding='utf-8') as f:
         translated_queries = json.load(f)

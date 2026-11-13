@@ -12,8 +12,8 @@
               ┌─────────────────┴──────────────────┐
               │                                     │
      translate_corpus.py                   translate_queries.py
-     (de, hi → en, via NLLB,                (de, hi → en, via NLLB,
-      batched fp16, checkpointed)            batched fp16, checkpointed)
+     (de, hi → en, NLLB nllb-v2,                (de, hi → en, NLLB nllb-v2,
+      sentence-level, checkpointed)            sentence-level, checkpointed)
               │                                     │
               ▼                                     ▼
    translated_corpus/*.json              translated_queries/*.json
@@ -23,7 +23,7 @@ generate_embeddings.py          generate_embeddings_translated.py
 (native corpus, all 3 langs)     (translated corpus, de/hi only)
               │                                     │
               ▼                                     ▼
-      embeddings/*.index                  embeddings/*_translated_en_nllb.index
+      embeddings/*.index                  embeddings/*_translated_en_nllb-v2.index
               │                                     │
               └──────────────────┬──────────────────┘
                                   ▼
@@ -43,11 +43,11 @@ generate_embeddings.py          generate_embeddings_translated.py
 
 ## File naming conventions
 
-- `corpus_{lang}_translated_en_nllb.json` — translated corpus documents for a non-English language, keyed by original `_id`.
-- `queries_{lang}_translated_en_nllb.json` — translated queries, same convention.
+- `corpus_{lang}_translated_en_nllb-v2.json` — translated corpus documents for a non-English language, keyed by original `_id`.
+- `queries_{lang}_translated_en_nllb-v2.json` — translated queries, same convention.
 - `{model}_{lang}.index` — FAISS index of native-language embeddings for a given model/language.
-- `{model}_{lang}_translated_en_nllb.index` — FAISS index built from the *translated* corpus for that language.
-- The `_nllb` suffix identifies which translation engine produced the underlying text (this project settled on NLLB as the sole translation engine — see README for why).
+- `{model}_{lang}_translated_en_nllb-v2.index` — FAISS index built from the *translated* corpus for that language.
+- The `_nllb-v2` suffix is the translation tag (`TRANSLATION_TAG` in `utils.py`). It identifies which version of the translation step produced the underlying text and is part of every cache, output and index name, so results from different translation methods can never be mixed. The earlier, defective version (`nllb`) is described in TROUBLESHOOTING.md, entry 13.
 
 ## Document ID alignment
 
@@ -55,6 +55,16 @@ FAISS indices are plain vector stores — they have no concept of document IDs, 
 
 - **Native embeddings**: built by iterating the Hugging Face corpus dataset directly (`load_dataset(..., split='test')`); document order is confirmed deterministic across repeated loads (verified independently before relying on it). `evaluate.py`'s direct pipeline loads the same corpus the same way to reconstruct the ID list.
 - **Translated embeddings**: built by iterating the `translated_corpus/*.json` file, which itself preserves the original corpus's iteration order (the translation script writes it out in that same order after translating). `evaluate.py`'s translate pipeline reads document IDs from that same JSON file, not from re-loading the HF dataset, so the order is guaranteed to match what the embedding script used.
+
+## Translation method
+
+`utils.translate_batch_to_english` translates with NLLB-200-distilled-600M:
+
+- **Explicit language tag.** Input ids are built manually as `[source-language token] text </s>` using `NllbTokenizer`, and the code raises if the language token is `<unk>` or missing. (With transformers 5.x, setting `src_lang` on an `AutoTokenizer` silently does nothing.)
+- **Sentence-level.** Each text is split into sentences by a boundary-aware splitter: a split after a terminator is undone when the previous piece ends in a 1–3 digit number, a single letter, or a known abbreviation (German ordinals such as "24. Februar", initials, "z. B."), and pieces under three words are merged into the previous one. The splitter is a heuristic; a false merge only makes a translation unit slightly longer.
+- **Batching.** Sentences from all texts in a chunk are pooled, sorted by token length, and batched up to 64 sentences or 4,096 padded tokens; results are re-joined per text through recorded index ranges, with assertions that nothing is missing.
+- **Decoding guards.** Greedy decoding with an output cap of twice the input length plus ten tokens. If an output repeats a word 4-gram eight or more times, that sentence is retranslated alone with beam search and a repeated-trigram ban. Errors are never swallowed: failures raise, and per-chunk statistics (sentences, loop fallbacks, empty outputs, seconds) are logged.
+- **Caching.** One cache file per tag and language (`cache/translation_cache_{tag}_{lang}.json`), saved only at checkpoints and written atomically; a corrupt cache raises instead of silently starting empty. Batch composition can change individual outputs slightly (fp16), so a resumed run is not guaranteed to be bit-identical to an uninterrupted one.
 
 ## Evaluation pipelines
 
@@ -95,7 +105,7 @@ With 10,000 permutations the smallest attainable p-value is 1/10,001, so the tab
 ## config.yaml structure
 
 - `models`: name → Hugging Face model ID, for every embedding model evaluated.
-- `translation_models`: name → Hugging Face model ID, for the translation engine (currently NLLB only).
+- `translation_models`: name → Hugging Face model ID, for the translation engine (currently `nllb-v2`, NLLB-200-distilled-600M).
 - `query_dataset` / `corpus_dataset` / `qrels_dataset`: Hugging Face dataset identifiers.
 - `languages`: which languages are evaluated (`en`, `de`, `hi`).
 - `evaluation.k_values`: the cutoffs metrics are computed at.
@@ -108,7 +118,7 @@ With 10,000 permutations the smallest attainable p-value is 1/10,001, so the tab
 | `embeddings/` | FAISS `.index` files — native and translated, per model/language |
 | `translated_corpus/` | Translated corpus documents, JSON, per language |
 | `translated_queries/` | Translated queries, JSON, per language |
-| `cache/` | Persistent translation cache (SHA256-keyed) plus dated backups taken before destructive changes |
+| `cache/` | Per-language translation caches (`translation_cache_{tag}_{lang}.json`, SHA256-keyed), written atomically at each checkpoint; gitignored because translation is fast enough to regenerate |
 | `results/` | Per-(model,pipeline) metric CSVs, aggregated summary/winloss CSVs, significance table, PNG charts; `per_query/` (gitignored) holds per-query scores |
 | `logs/` | Timestamped logs from every pipeline script run — start/end time, counts, errors |
 | `audit/` | Scripts used to verify dataset integrity (no missing/duplicate references, deterministic load order, graded qrels) and benchmark hardware (CPU vs GPU, batching) before committing to the full-scale run |

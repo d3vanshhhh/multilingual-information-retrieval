@@ -109,6 +109,26 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 
 **Root cause (dropped content)**: NLLB is a sentence-level model, and fed whole multi-sentence passages it tends to skip content. Truncation at 512 tokens is not the main cause: at most 0.76% of documents in any language exceed 512 NLLB tokens.
 
-**Status**: the tag problem is identified and the fix is confirmed on test sentences. Segmentation and loop control are being validated on a sample before the corpora are re-translated. The translate-pipeline results (not the direct ones) will be recomputed and this entry updated.
+**Fix**: translation was rewritten and tagged `nllb-v2`. The language token is built explicitly (`NllbTokenizer`, manual `[lang] X </s>` layout, an exception if it is ever `<unk>`), documents are translated sentence by sentence in length-sorted batches, output length is capped, and degenerate repetition triggers a retranslation with beam search and a repeated-trigram ban. New outputs, caches and indices carry the tag, and the old files were left untouched, so nothing could silently reuse the defective translations (the old cache would otherwise have returned them with zero misses).
 
-**Lesson**: a translation step can fail silently while producing fluent output. The checks that found this were cheap: look at the token ids, count how often outputs keep the source's first word, and compare translated and source lengths by document length.
+**Result**: re-translating all 13,500 passages took 15 minutes (German) and 24 minutes (Hindi), against about two hours each before. Audit of the full corpora, old to new:
+- median word ratio by source length (short to over 300 words): German 1.02 to 0.58 became 1.10 to 1.04; Hindi 0.84 to 0.41 became 0.91 to 0.92;
+- passages keeping under half their words: German 151 to 3, Hindi 1,057 to 41;
+- severe repetition: German 111 to 2, Hindi 83 to 6 (the loop guard fired 8 times for German and 107 times for Hindi);
+- German queries starting "Was": 502 of 502 now translate to "What" (280 did not before); no query is identical to its source.
+
+Effect on results (`results/v1_vs_v2.csv`): translate-pipeline nDCG@10 rose by 0.015 to 0.113 per (model, language), every 95% interval above zero. Hindi gained about 0.04 for every model. German gained about 0.10 for the English-only models but only 0.015 to 0.025 for bge-m3 and multilingual-e5-base, which fits (but was not tested) untranslated German words having matched between queries and passages for the multilingual embedders. The English-only versus multilingual split held in 11 of 12 comparisons; the one change was paraphrase-multilingual-MiniLM on German, which now prefers translation.
+
+**Remaining defects (measured)**: 96 German passages (0.7%) and 12 Hindi passages (0.09%) have a translated/source word ratio above 2.5. The highest cases are hallucinated boilerplate ("The Commission has decided…") for bibliography lines and bare URLs, and one German query ("Warum hat Ryanair einen Anteil an Laudamotion übernommen?") was affected the same way. Two German and six Hindi passages still contain degenerate repetition.
+
+**Lesson**: a translation step can fail silently while producing fluent output. The checks that found this were cheap: look at the token ids, count how often outputs keep the source's first word, and compare translated and source lengths by passage length.
+
+## 14. The sentence splitter cut German dates and abbreviations in half
+
+**Symptom**: after the language-tag fix, a consistency check showed fragments such as "The 24th . In February 2014…" and "…since the early 16th century. Century (first recorded in 1518…".
+
+**Root cause**: the first splitter broke after every period followed by whitespace, but German ordinals ("am 24. Februar"), initials ("J. R. R.") and abbreviations ("z. B.", "Hrsg.") contain sentence-internal periods. An audit of the two corpora found at least one false boundary in 3,198 German passages (23.7%, 3,819 boundaries) and 274 Hindi passages (2.0%, 329 boundaries); among queries, 27 German (1.8%) and none in Hindi.
+
+**Fix**: a split is undone when the previous piece ends in a 1–3 digit number with a period, a single letter with a period, or a known abbreviation. Checked on ten strings in five languages (German, Czech, Danish, Bulgarian, Finnish) plus Hindi. This is a heuristic: a wrong merge only makes a unit slightly longer. The abbreviation list covers German, Czech, Danish, Dutch, Finnish and Bulgarian forms and has not been tuned for every language.
+
+**Lesson**: the pilot examples contained no ordinals, so the flaw surfaced only in an unrelated consistency check. Test splitters on date-heavy text.

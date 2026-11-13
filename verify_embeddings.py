@@ -1,6 +1,6 @@
 """
 Verify that all embedding indices exist, are readable, and have correct document counts.
-Checks both native embeddings (en/de/hi) and translated embeddings (de/hi -> en via NLLB).
+Checks both native embeddings and translated embeddings.
 """
 
 import faiss
@@ -8,6 +8,7 @@ from pathlib import Path
 import yaml
 import json
 from datasets import load_dataset
+from utils import TRANSLATION_TAG
 
 # Load config
 with open('config.yaml', 'r') as f:
@@ -18,13 +19,17 @@ languages = config['languages']
 
 print("=" * 100)
 print("EMBEDDING INDEX VERIFICATION")
+print(f"Translation tag: {TRANSLATION_TAG}")
 print("=" * 100)
 
 embeddings_dir = Path('embeddings')
 translated_corpus_dir = Path('translated_corpus')
 all_good = True
 checked_count = 0
-expected_count = len(models) * 5  # 6 models × (3 native + 2 translated) = 30
+
+# Get translated languages
+translated_languages = [lang for lang in languages if lang != 'en']
+expected_count = len(models) * (len(languages) + len(translated_languages))
 
 # Get actual corpus sizes for each language
 print("\nLoading corpus sizes from datasets...")
@@ -40,7 +45,7 @@ for model in models:
     print(f"\n{model}")
     print("-" * 100)
     
-    # Check native embeddings (en, de, hi)
+    # Check native embeddings
     for lang in languages:
         index_file = embeddings_dir / f"{model}_{lang}.index"
         if index_file.exists():
@@ -65,10 +70,10 @@ for model in models:
             print(f"  {lang:3s}: ❌ MISSING")
             all_good = False
     
-    # Check translated embeddings (de->en, hi->en via NLLB)
-    for lang in ['de', 'hi']:
-        index_file = embeddings_dir / f"{model}_{lang}_translated_en_nllb.index"
-        translated_corpus_file = translated_corpus_dir / f"corpus_{lang}_translated_en_nllb.json"
+    # Check translated embeddings (skip English)
+    for lang in translated_languages:
+        index_file = embeddings_dir / f"{model}_{lang}_translated_en_{TRANSLATION_TAG}.index"
+        translated_corpus_file = translated_corpus_dir / f"corpus_{lang}_translated_en_{TRANSLATION_TAG}.json"
         
         if index_file.exists():
             try:
@@ -84,20 +89,20 @@ for model in models:
                     expected_translated = len(translated_corpus)
                     
                     if count == expected_translated:
-                        print(f"  {lang}→en (NLLB): ✅ {count:5d} vectors, dim={dim:4d}, size={size_mb:6.2f}MB (matches translated corpus)")
+                        print(f"  {lang}→en ({TRANSLATION_TAG}): ✅ {count:5d} vectors, dim={dim:4d}, size={size_mb:6.2f}MB (matches translated corpus)")
                         checked_count += 1
                     else:
-                        print(f"  {lang}→en (NLLB): ❌ {count:5d} vectors, dim={dim:4d}, size={size_mb:6.2f}MB (expected {expected_translated})")
+                        print(f"  {lang}→en ({TRANSLATION_TAG}): ❌ {count:5d} vectors, dim={dim:4d}, size={size_mb:6.2f}MB (expected {expected_translated})")
                         all_good = False
                         checked_count += 1
                 else:
-                    print(f"  {lang}→en (NLLB): ⚠️  {count:5d} vectors, dim={dim:4d}, size={size_mb:6.2f}MB (translated corpus file missing, cannot verify count)")
+                    print(f"  {lang}→en ({TRANSLATION_TAG}): ⚠️  {count:5d} vectors, dim={dim:4d}, size={size_mb:6.2f}MB (translated corpus file missing, cannot verify count)")
                     checked_count += 1
             except Exception as e:
-                print(f"  {lang}→en (NLLB): ❌ ERROR reading index: {e}")
+                print(f"  {lang}→en ({TRANSLATION_TAG}): ❌ ERROR reading index: {e}")
                 all_good = False
         else:
-            print(f"  {lang}→en (NLLB): ❌ MISSING")
+            print(f"  {lang}→en ({TRANSLATION_TAG}): ❌ MISSING")
             all_good = False
 
 print("\n" + "=" * 100)
@@ -108,12 +113,13 @@ else:
 print("=" * 100)
 
 # Summary statistics
+translated_lang_count = len(translated_languages)
 print("\nSUMMARY:")
 total_indices = len(list(embeddings_dir.glob("*.index")))
 total_size = sum(f.stat().st_size for f in embeddings_dir.glob("*.index")) / (1024**2)
 print(f"Total index files found: {total_indices}")
 print(f"Total indices checked: {checked_count}")
-print(f"Expected indices: {expected_count} (6 models × 5 = 18 native + 12 translated)")
+print(f"Expected indices: {expected_count} ({len(models)} models × {len(languages) + translated_lang_count} = {len(models) * len(languages)} native + {len(models) * translated_lang_count} translated)")
 print(f"Total disk usage: {total_size:.2f} MB")
 
 if checked_count == expected_count and all_good:

@@ -10,7 +10,7 @@ models:
   bge-m3: BAAI/bge-m3  # Multilingual (100+ languages)
 
 translation_models:
-  nllb: facebook/nllb-200-distilled-600M
+  nllb-v2: facebook/nllb-200-distilled-600M
 
 query_dataset: ellamind/wikipedia-2023-11-retrieval-multilingual-queries
 corpus_dataset: ellamind/wikipedia-2023-11-retrieval-multilingual-corpus
